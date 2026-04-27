@@ -358,6 +358,130 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
         emit PositionsConverted(msg.sender, _marketId, _indexSet, _amount);
     }
 
+    /// @notice Convert a set of yes positions plus collateral proportional to (# of markets - # of yes positions - 1)
+    /// to the complementary set of no positions
+    /// @notice If the market has a fee, the fee is taken either from collateral or the yes positions
+    /// @param _marketId - the marketId
+    /// @param _indexSet - the set of positions to convert, expressed as an index set where the least significant bit is
+    /// the first question (index zero)
+    /// @param _amount   - the amount of tokens to convert
+    function convertYESPositions(bytes32 _marketId, uint256 _indexSet, uint256 _amount) external {
+        MarketData md = getMarketData(_marketId);
+        uint256 questionCount = md.questionCount();
+
+        if (md.oracle() == address(0)) revert MarketNotPrepared();
+        if (questionCount <= 1) revert NoConvertiblePositions();
+        if (_indexSet == 0) revert InvalidIndexSet();
+        if ((_indexSet >> questionCount) > 0) revert InvalidIndexSet();
+
+        // if _amount is 0, return early
+        if (_amount == 0) {
+            return;
+        }
+
+        uint256 index = 0;
+        uint256 yesPositionCount;
+
+        // count number of yes positions
+        while (index < questionCount) {
+            unchecked {
+                if ((_indexSet & (1 << index)) > 0) {
+                    ++yesPositionCount;
+                }
+                ++index;
+            }
+        }
+
+        uint256 noPositionCount = questionCount - yesPositionCount;
+        uint256[] memory noPositionIds = new uint256[](noPositionCount);
+        uint256[] memory yesPositionIds = new uint256[](yesPositionCount);
+        uint256[] memory accumulatedYesPositionIds = new uint256[](noPositionCount);
+
+        // mint the amount of wcol required
+        wcol.mint(noPositionCount * _amount);
+
+        // populate noPositionIds and yesPositionIds
+        // split no positions
+        {
+            uint256 noIndex;
+            uint256 yesIndex;
+            index = 0;
+
+            while (index < questionCount) {
+                bytes32 questionId = NegRiskIdLib.getQuestionId(_marketId, uint8(index));
+
+                if ((_indexSet & (1 << index)) > 0) {
+                    // YES
+                    yesPositionIds[yesIndex] = getPositionId(questionId, true);
+
+                    unchecked {
+                        ++yesIndex;
+                    }
+                } else {
+                    // NO
+                    noPositionIds[noIndex] = getPositionId(questionId, false);
+                    accumulatedYesPositionIds[noIndex] = getPositionId(questionId, true);
+
+                    // split position to get yes and no tokens
+                    // the yes tokens will be discarded
+                    _splitPosition(getConditionId(questionId), _amount);
+
+                    unchecked {
+                        ++noIndex;
+                    }
+                }
+                unchecked {
+                    ++index;
+                }
+            }
+        }
+
+        // transfer the caller's yes tokens _and_ accumulated yes tokens to the burn address
+        // these must never be redeemed
+        {
+            ctf.safeBatchTransferFrom(
+                msg.sender, NO_TOKEN_BURN_ADDRESS, yesPositionIds, Helpers.values(yesPositionIds.length, _amount), ""
+            );
+
+            ctf.safeBatchTransferFrom(
+                address(this),
+                NO_TOKEN_BURN_ADDRESS,
+                accumulatedYesPositionIds,
+                Helpers.values(noPositionCount, _amount),
+                ""
+            );
+        }
+
+        uint256 feeAmount = (_amount * md.feeBips()) / FEE_DENOMINATOR;
+        uint256 amountOut = _amount - feeAmount;
+
+        if (noPositionCount == 0) {
+            if (feeAmount > 0) {
+                wcol.release(vault, feeAmount);
+            }
+            // transfer collateral to sender
+            wcol.release(msg.sender, amountOut);
+        } else {
+            if (feeAmount > 0) {
+                ctf.safeBatchTransferFrom(
+                    address(this), vault, noPositionIds, Helpers.values(noPositionIds.length, feeAmount), ""
+                );
+            }
+
+            // Transfer collateral from sender (no position count * _amount)
+            uint256 multiplier = noPositionCount - 1;
+            col.safeTransferFrom(msg.sender, address(this), multiplier * _amount);
+            wcol.wrap(address(this), multiplier * _amount);
+
+            // transfer No tokens to sender
+            ctf.safeBatchTransferFrom(
+                address(this), msg.sender, noPositionIds, Helpers.values(noPositionIds.length, amountOut), ""
+            );
+        }
+
+        emit PositionsConverted(msg.sender, _marketId, _indexSet, _amount);
+    }
+
     /*//////////////////////////////////////////////////////////////
                              PREPARE MARKET
     //////////////////////////////////////////////////////////////*/

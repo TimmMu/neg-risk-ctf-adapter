@@ -25,6 +25,21 @@ contract NegRiskAdapterSnapshots is TestHelper {
         nrAdapter = new NegRiskAdapter(address(ctf), address(usdc), vault);
     }
 
+    /// @notice Snapshots use `indexSet = 1` (one YES leg). Partial convertYES pulls `(questionCount - yesBits - 1) *
+    /// amount` USDC.
+    function _mintUsdcForConvertYESPartial(address account, uint256 questionCount, uint256 amount) internal {
+        uint256 userYesBurnQuestionCount = 1;
+        if (userYesBurnQuestionCount < questionCount) {
+            uint256 payMultiplier = questionCount - userYesBurnQuestionCount - 1;
+            if (payMultiplier > 0) {
+                vm.startPrank(account);
+                usdc.mint(account, payMultiplier * amount);
+                usdc.approve(address(nrAdapter), payMultiplier * amount);
+                vm.stopPrank();
+            }
+        }
+    }
+
     function test_snap_prepareMarket() public {
         uint256 feeBips = 1_00;
         bytes memory data = new bytes(128);
@@ -272,6 +287,199 @@ contract NegRiskAdapterSnapshots is TestHelper {
 
         vm.startSnapshotGas("NegRiskAdapter_convertPositions_128");
         nrAdapter.convertPositions(marketId, 1, amount);
+        vm.stopSnapshotGas();
+    }
+
+    function test_snap_convertYESPositions_5() public {
+        uint256 amount = 10_000_000;
+        uint256 feeBips = 0;
+        bytes memory data = new bytes(0);
+
+        vm.prank(oracle);
+        bytes32 marketId = nrAdapter.prepareMarket(feeBips, data);
+
+        uint256 i = 0;
+        uint256 questionCount = 5;
+        while (i < questionCount) {
+            vm.prank(oracle);
+            bytes32 questionId = nrAdapter.prepareQuestion(marketId, data);
+            bytes32 conditionId = nrAdapter.getConditionId(questionId);
+
+            vm.startPrank(alice);
+            usdc.mint(alice, amount);
+            usdc.approve(address(nrAdapter), amount);
+            nrAdapter.splitPosition(conditionId, amount);
+            vm.stopPrank();
+
+            ++i;
+        }
+
+        _mintUsdcForConvertYESPartial(alice, questionCount, amount);
+        vm.startPrank(alice);
+        ctf.setApprovalForAll(address(nrAdapter), true);
+        vm.startSnapshotGas("NegRiskAdapter_convertYESPositions_5");
+        nrAdapter.convertYESPositions(marketId, 1, amount);
+        vm.stopSnapshotGas();
+    }
+
+    function test_snap_convertYESPositions_32() public {
+        uint256 amount = 10_000_000;
+        uint256 feeBips = 0;
+        bytes memory data = new bytes(0);
+
+        vm.prank(oracle);
+        bytes32 marketId = nrAdapter.prepareMarket(feeBips, data);
+
+        uint256 i = 0;
+        uint256 questionCount = 32;
+        while (i < questionCount) {
+            vm.prank(oracle);
+            bytes32 questionId = nrAdapter.prepareQuestion(marketId, data);
+            bytes32 conditionId = nrAdapter.getConditionId(questionId);
+
+            vm.startPrank(alice);
+            usdc.mint(alice, amount);
+            usdc.approve(address(nrAdapter), amount);
+            nrAdapter.splitPosition(conditionId, amount);
+            vm.stopPrank();
+
+            ++i;
+        }
+
+        _mintUsdcForConvertYESPartial(alice, questionCount, amount);
+        vm.startPrank(alice);
+        ctf.setApprovalForAll(address(nrAdapter), true);
+        vm.startSnapshotGas("NegRiskAdapter_convertYESPositions_32");
+        nrAdapter.convertYESPositions(marketId, 1, amount);
+        vm.stopSnapshotGas();
+    }
+
+    function test_snap_convertYESPositions_64() public {
+        uint256 amount = 10_000_000;
+        uint256 feeBips = 0;
+        bytes memory data = new bytes(0);
+
+        vm.prank(oracle);
+        bytes32 marketId = nrAdapter.prepareMarket(feeBips, data);
+
+        uint256 i = 0;
+        uint256 questionCount = 64;
+        while (i < questionCount) {
+            vm.prank(oracle);
+            bytes32 questionId = nrAdapter.prepareQuestion(marketId, data);
+            bytes32 conditionId = nrAdapter.getConditionId(questionId);
+
+            vm.startPrank(alice);
+            usdc.mint(alice, amount);
+            usdc.approve(address(nrAdapter), amount);
+            nrAdapter.splitPosition(conditionId, amount);
+            vm.stopPrank();
+
+            ++i;
+        }
+
+        _mintUsdcForConvertYESPartial(alice, questionCount, amount);
+        vm.startPrank(alice);
+        ctf.setApprovalForAll(address(nrAdapter), true);
+        vm.startSnapshotGas("NegRiskAdapter_convertYESPositions_64");
+        nrAdapter.convertYESPositions(marketId, 1, amount);
+        vm.stopSnapshotGas();
+    }
+
+    function test_snap_convertYESPositions_96() public {
+        uint256 amount = 10_000_000;
+        uint256 feeBips = 0;
+        bytes memory data = new bytes(0);
+
+        vm.prank(oracle);
+        bytes32 marketId = nrAdapter.prepareMarket(feeBips, data);
+
+        uint256 i = 0;
+        uint256 questionCount = 96;
+        while (i < questionCount) {
+            vm.prank(oracle);
+            bytes32 questionId = nrAdapter.prepareQuestion(marketId, data);
+            bytes32 conditionId = nrAdapter.getConditionId(questionId);
+
+            vm.startPrank(alice);
+            usdc.mint(alice, amount);
+            usdc.approve(address(nrAdapter), amount);
+            nrAdapter.splitPosition(conditionId, amount);
+            vm.stopPrank();
+
+            ++i;
+        }
+
+        _mintUsdcForConvertYESPartial(alice, questionCount, amount);
+        vm.startPrank(alice);
+        ctf.setApprovalForAll(address(nrAdapter), true);
+        vm.startSnapshotGas("NegRiskAdapter_convertYESPositions_96");
+        nrAdapter.convertYESPositions(marketId, 1, amount);
+        vm.stopSnapshotGas();
+    }
+
+    function test_snap_convertYESPositions_128() public {
+        uint256 amount = 10_000_000;
+        uint256 feeBips = 0;
+        bytes memory data = new bytes(0);
+
+        vm.prank(oracle);
+        bytes32 marketId = nrAdapter.prepareMarket(feeBips, data);
+
+        uint256 i = 0;
+        uint256 questionCount = 128;
+        while (i < questionCount) {
+            vm.prank(oracle);
+            bytes32 questionId = nrAdapter.prepareQuestion(marketId, data);
+            bytes32 conditionId = nrAdapter.getConditionId(questionId);
+
+            vm.startPrank(alice);
+            usdc.mint(alice, amount);
+            usdc.approve(address(nrAdapter), amount);
+            nrAdapter.splitPosition(conditionId, amount);
+            vm.stopPrank();
+
+            ++i;
+        }
+
+        _mintUsdcForConvertYESPartial(alice, questionCount, amount);
+        vm.startPrank(alice);
+        ctf.setApprovalForAll(address(nrAdapter), true);
+        vm.startSnapshotGas("NegRiskAdapter_convertYESPositions_128");
+        nrAdapter.convertYESPositions(marketId, 1, amount);
+        vm.stopSnapshotGas();
+    }
+
+    function test_snap_convertYESPositions_196() public {
+        uint256 amount = 10_000_000;
+        uint256 feeBips = 0;
+        bytes memory data = new bytes(0);
+
+        vm.prank(oracle);
+        bytes32 marketId = nrAdapter.prepareMarket(feeBips, data);
+
+        uint256 i = 0;
+        uint256 questionCount = 196;
+        while (i < questionCount) {
+            vm.prank(oracle);
+            bytes32 questionId = nrAdapter.prepareQuestion(marketId, data);
+            bytes32 conditionId = nrAdapter.getConditionId(questionId);
+
+            vm.startPrank(alice);
+            usdc.mint(alice, amount);
+            usdc.approve(address(nrAdapter), amount);
+            nrAdapter.splitPosition(conditionId, amount);
+            vm.stopPrank();
+
+            ++i;
+        }
+
+        _mintUsdcForConvertYESPartial(alice, questionCount, amount);
+        vm.startPrank(alice);
+        ctf.setApprovalForAll(address(nrAdapter), true);
+
+        vm.startSnapshotGas("NegRiskAdapter_convertYESPositions_196");
+        nrAdapter.convertYESPositions(marketId, 1, amount);
         vm.stopSnapshotGas();
     }
 
