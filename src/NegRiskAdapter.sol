@@ -245,29 +245,14 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
         MarketData md = getMarketData(_marketId);
         uint256 questionCount = md.questionCount();
 
-        if (md.oracle() == address(0)) revert MarketNotPrepared();
-        if (questionCount <= 1) revert NoConvertiblePositions();
-        if (_indexSet == 0) revert InvalidIndexSet();
-        if ((_indexSet >> questionCount) > 0) revert InvalidIndexSet();
+        _validateConversion(md, questionCount, _indexSet);
 
         // if _amount is 0, return early
         if (_amount == 0) {
             return;
         }
 
-        uint256 index = 0;
-        uint256 noPositionCount;
-
-        // count number of no positions
-        while (index < questionCount) {
-            unchecked {
-                if ((_indexSet & (1 << index)) > 0) {
-                    ++noPositionCount;
-                }
-                ++index;
-            }
-        }
-
+        uint256 noPositionCount = _countConvertedPositions(_indexSet, questionCount);
         uint256 yesPositionCount = questionCount - noPositionCount;
         uint256[] memory noPositionIds = new uint256[](noPositionCount);
         uint256[] memory yesPositionIds = new uint256[](yesPositionCount);
@@ -281,7 +266,7 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
         {
             uint256 noIndex;
             uint256 yesIndex;
-            index = 0;
+            uint256 index;
 
             while (index < questionCount) {
                 bytes32 questionId = NegRiskIdLib.getQuestionId(_marketId, uint8(index));
@@ -314,18 +299,7 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
 
         // transfer the caller's no tokens _and_ accumulated no tokens to the burn address
         // these must never be redeemed
-        {
-            ctf.safeBatchTransferFrom(
-                msg.sender, NO_TOKEN_BURN_ADDRESS, noPositionIds, Helpers.values(noPositionIds.length, _amount), ""
-            );
-            ctf.safeBatchTransferFrom(
-                address(this),
-                NO_TOKEN_BURN_ADDRESS,
-                accumulatedNoPositionIds,
-                Helpers.values(yesPositionCount, _amount),
-                ""
-            );
-        }
+        _burnConvertedPositions(noPositionIds, accumulatedNoPositionIds, _amount);
 
         uint256 feeAmount = (_amount * md.feeBips()) / FEE_DENOMINATOR;
         uint256 amountOut = _amount - feeAmount;
@@ -369,29 +343,14 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
         MarketData md = getMarketData(_marketId);
         uint256 questionCount = md.questionCount();
 
-        if (md.oracle() == address(0)) revert MarketNotPrepared();
-        if (questionCount <= 1) revert NoConvertiblePositions();
-        if (_indexSet == 0) revert InvalidIndexSet();
-        if ((_indexSet >> questionCount) > 0) revert InvalidIndexSet();
+        _validateConversion(md, questionCount, _indexSet);
 
         // if _amount is 0, return early
         if (_amount == 0) {
             return;
         }
 
-        uint256 index = 0;
-        uint256 yesPositionCount;
-
-        // count number of yes positions
-        while (index < questionCount) {
-            unchecked {
-                if ((_indexSet & (1 << index)) > 0) {
-                    ++yesPositionCount;
-                }
-                ++index;
-            }
-        }
-
+        uint256 yesPositionCount = _countConvertedPositions(_indexSet, questionCount);
         uint256 noPositionCount = questionCount - yesPositionCount;
         uint256[] memory noPositionIds = new uint256[](noPositionCount);
         uint256[] memory yesPositionIds = new uint256[](yesPositionCount);
@@ -405,7 +364,7 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
         {
             uint256 noIndex;
             uint256 yesIndex;
-            index = 0;
+            uint256 index;
 
             while (index < questionCount) {
                 bytes32 questionId = NegRiskIdLib.getQuestionId(_marketId, uint8(index));
@@ -438,24 +397,12 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
 
         // transfer the caller's yes tokens _and_ accumulated yes tokens to the burn address
         // these must never be redeemed
-        {
-            ctf.safeBatchTransferFrom(
-                msg.sender, NO_TOKEN_BURN_ADDRESS, yesPositionIds, Helpers.values(yesPositionIds.length, _amount), ""
-            );
-
-            ctf.safeBatchTransferFrom(
-                address(this),
-                NO_TOKEN_BURN_ADDRESS,
-                accumulatedYesPositionIds,
-                Helpers.values(noPositionCount, _amount),
-                ""
-            );
-        }
+        _burnConvertedPositions(yesPositionIds, accumulatedYesPositionIds, _amount);
 
         uint256 feeAmount = (_amount * md.feeBips()) / FEE_DENOMINATOR;
         uint256 amountOut = _amount - feeAmount;
 
-        if (noPositionCount == 0) {
+        if (noPositionIds.length == 0) {
             if (feeAmount > 0) {
                 wcol.release(vault, feeAmount);
             }
@@ -469,7 +416,7 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
             }
 
             // Transfer collateral from sender (no position count * _amount)
-            uint256 multiplier = noPositionCount - 1;
+            uint256 multiplier = noPositionIds.length - 1;
             col.safeTransferFrom(msg.sender, address(this), multiplier * _amount);
             wcol.wrap(address(this), multiplier * _amount);
 
@@ -538,6 +485,43 @@ contract NegRiskAdapter is ERC1155TokenReceiver, MarketStateManager, INegRiskAda
     /*//////////////////////////////////////////////////////////////
                                 INTERNAL
     //////////////////////////////////////////////////////////////*/
+
+    /// @dev Validates that a conversion can be performed for the given market and index set
+    function _validateConversion(MarketData _md, uint256 _questionCount, uint256 _indexSet) private pure {
+        if (_md.oracle() == address(0)) revert MarketNotPrepared();
+        if (_questionCount <= 1) revert NoConvertiblePositions();
+        if (_indexSet == 0) revert InvalidIndexSet();
+        if ((_indexSet >> _questionCount) > 0) revert InvalidIndexSet();
+    }
+
+    /// @dev Counts the number of set bits in _indexSet up to _questionCount
+    function _countConvertedPositions(uint256 _indexSet, uint256 _questionCount) private pure returns (uint256) {
+        uint256 index;
+        uint256 convertedCount;
+
+        while (index < _questionCount) {
+            unchecked {
+                if ((_indexSet & (1 << index)) > 0) {
+                    ++convertedCount;
+                }
+                ++index;
+            }
+        }
+
+        return convertedCount;
+    }
+
+    /// @dev Burns the caller's converted tokens and the accumulated same-outcome tokens from splits
+    function _burnConvertedPositions(uint256[] memory _convertedIds, uint256[] memory _accumulatedIds, uint256 _amount)
+        private
+    {
+        ctf.safeBatchTransferFrom(
+            msg.sender, NO_TOKEN_BURN_ADDRESS, _convertedIds, Helpers.values(_convertedIds.length, _amount), ""
+        );
+        ctf.safeBatchTransferFrom(
+            address(this), NO_TOKEN_BURN_ADDRESS, _accumulatedIds, Helpers.values(_accumulatedIds.length, _amount), ""
+        );
+    }
 
     /// @dev internal function to avoid stack too deep in convertPositions
     function _splitPosition(bytes32 _conditionId, uint256 _amount) internal {
