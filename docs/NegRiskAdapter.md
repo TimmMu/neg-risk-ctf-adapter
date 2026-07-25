@@ -1,6 +1,6 @@
 # NegRiskAdapter
 
-`NegRiskAdapter` provides an adapter interface for the Gnosis Conditional Tokens Framework (CTF) which allows users to _convert_ collections of NO tokens in mutually-exclusive binary markets into a corresponding position of YES tokens and collateral.
+`NegRiskAdapter` provides an adapter interface for the Gnosis Conditional Tokens Framework (CTF) which allows users to _convert_ collections of NO tokens in mutually-exclusive binary markets into a corresponding position of YES tokens and collateral, and conversely to convert YES tokens (plus collateral) into the complementary NO positions.
 
 In this contract, _markets_ refer to collections of mutually-exclusive binary conditions, and _questions_ (or their corresponding _positions_) refer to the invidual conditions themselves.
 
@@ -80,6 +80,30 @@ Supposing that exactly one questions resolves true, these two positions have equ
 There is an optional `feeRate` market parameter which exists to implement a fee on the conversion. Collected fees are sent to the `vault` address.
 
 It is necessary to synthetically mint wrapped collateral in order to collateralize the resulting YES tokens. Careful book keeping ensures that the value of outstanding YES tokens will never exceed the value of collateral in the wrapped collateral contract. In this process, it is necessary to burn NO tokens; they are sent to an uncontrolled burn address.
+
+`convertPositions` and `convertYESPositions` share the same internal conversion machinery (validation, bit counting, and burning); only position preparation and settlement direction differ.
+
+### Parameters
+
+```[solidity]
+bytes32 _marketId
+uint256 _indexSet
+uint256 _amount
+```
+
+## `convertYESPositions`
+
+Converts a set of YES tokens in the same market, plus collateral, into the complementary set of NO tokens.
+
+The user must hold at least `_amount` of each YES token specified by `_indexSet`.
+
+If the market has `n` questions, and the user converts `_amount` of `m` YES tokens, the user pays `_amount * (n - m - 1)` collateral (when `n - m > 0`) and receives `_amount` of each complementary NO token. When converting all YES tokens in the market (`m == n`), the user instead receives `_amount` collateral and no NO tokens.
+
+Supposing that exactly one question resolves true, the input and output positions have equivalent final values (absent fees). In the event that all questions resolve false, the resulting position may be worth less than the original position. It is not possible for more than one question to resolve true.
+
+There is an optional `feeRate` market parameter which exists to implement a fee on the conversion. Collected fees are sent to the `vault` address.
+
+It is necessary to synthetically mint wrapped collateral in order to collateralize the resulting NO tokens. Careful book keeping ensures that outstanding position value remains backed. In this process, it is necessary to burn YES tokens; they are sent to an uncontrolled burn address.
 
 ### Parameters
 
